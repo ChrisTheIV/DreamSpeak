@@ -1,26 +1,38 @@
 # System Overview
 
-This repository is being set up for a lucid-dream intention audio app. The MVP is intentionally small: play background audio, randomly select from pre-recorded phrase clips, and vary timing, repeat count, speed, and pitch without adding TTS or AI generation.
+DreamSpeak is a browser-based lucid-dream intention audio app built around **semi-intentional sleep interruption**. Its defining mode plays bounded but unpredictable pre-recorded cues often enough to catch the user while drifting and resist full sleep onset. It does not claim to detect REM or sleep stages.
+
+## Product model
+
+A session combines:
+- one session mode
+- one phrase goal/set with individually enabled clips
+- one ambient track
+- one voice-variation profile
+- an optional sleep timer
+- optional advanced timing overrides
+
+`Edge of sleep` is the default mode. It deliberately keeps gaps short and unpredictable across three phases: Settling, Threshold, and Holding the edge. WBTB and Nap are optional alternatives. Custom exposes direct timing controls.
 
 ## Core parts
 
 ### Audio Session Engine
-Owns playback lifecycle: start, pause, stop, fade, and synchronization of ambient audio with phrase playback.
+Owns start, pause, resume, stop, active elapsed time, sleep timer execution, countdown state, and session summaries. It coordinates the scheduler with the playback layer.
+
+### Audio Playback Layer
+Owns browser audio elements, ambient crossfades, phrase fades, ambient ducking, cue repeats, preview playback, pause, and stop.
 
 ### Phrase Scheduler
-Owns all randomization and sleep-friendly timing decisions. It selects which phrase to play, how many times to repeat it, how long to wait between groups, and which speed or pitch variation to apply.
+Owns all bounded randomization. It selects the phrase, phase-aware delay, repeat count, cue gap, and playback rate. The UI never makes random scheduling decisions.
 
 ### Audio Asset Registry
-Tracks the available phrase files and background tracks. It is the source of truth for file IDs, labels, enabled flags, and any per-clip variation metadata.
-
-### Preset Settings
-Stores user-facing presets such as sleep onset, WBTB, and focus or affirmation modes. Presets should configure the scheduler and engine, not duplicate their logic.
-
-### Sleep Timer
-Optionally stops the session after a user-selected duration so the app can run as a passive sleep aid without staying on all night.
+Owns canonical phrase clips, phrase categories, goal sets, ambient tracks, session modes, phase bounds, variation profiles, and settings normalization.
 
 ### Playback UI
-Exposes start, pause, stop, preset selection, and volume or timing controls. The UI should send user intent to the engine and scheduler; it should not make playback decisions itself.
+Owns configuration, local persistence, phrase selection and preview actions, live rendering, optional outcome feedback, and state-appropriate controls. Detailed numeric settings are secondary to the bedtime workflow.
+
+### Local Session Feedback
+Stores a small optional local history containing session summary, outcome, and cue-intensity rating. It is not a dream journal and does not send data to a server.
 
 ## MVP boundaries
 
@@ -28,10 +40,11 @@ Exposes start, pause, stop, preset selection, and volume or timing controls. The
 - No REM detection
 - No AI phrase generation
 - Pre-recorded phrase files only
-- Background audio and phrase audio stay separate
-- Scheduler owns randomization; UI does not
-- Sleep timer is optional and user-controlled
+- Background audio and phrase audio remain separate
+- Scheduler owns randomization and phase selection
+- Edge mode must remain surprise-oriented and interruption-capable
+- Feedback is optional and local
 
 ## Documentation rule
 
-If an important file changes later, update its matching `.system.md` file in the same task.
+If an important file changes, update its matching `.system.md` file in the same task.
