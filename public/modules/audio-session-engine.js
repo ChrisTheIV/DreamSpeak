@@ -1,68 +1,94 @@
-import { getMusicById } from './audio-registry.js';
+import { getModeById, getMusicById, normalizeSettings } from './audio-registry.js';
+import { AudioPlaybackLayer } from './audio-playback-layer.js';
 
 function nowLabel(ms) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
   const seconds = String(totalSeconds % 60).padStart(2, '0');
-  return `${minutes}:${seconds}`;
+  return hours > 0 ? `${hours}:${minutes}:${seconds}` : `${minutes}:${seconds}`;
 }
 
 export class AudioSessionEngine {
-  constructor({ registry, scheduler, onStateChange, onPlan, onLog }) {
+  constructor({ registry, scheduler, onStateChange, onPlan, onLog, onSessionEnd }) {
     this.registry = registry;
     this.scheduler = scheduler;
     this.onStateChange = onStateChange;
     this.onPlan = onPlan;
     this.onLog = onLog;
+    this.onSessionEnd = onSessionEnd;
     this.settings = null;
     this.state = 'idle';
-    this.startAt = null;
-    this.elapsedMs = 0;
+    this.accumulatedElapsedMs = 0;
+    this.runningSegmentStartedAt = null;
     this.pendingTimeout = null;
     this.sleepTimerTimeout = null;
     this.sleepTimerDeadline = null;
     this.sleepTimerRemainingMs = null;
-    this.abortResolvers = new Set();
     this.currentPlan = null;
-    this.backgroundAudio = new Audio();
-    this.phraseAudio = new Audio();
-    this.backgroundAudio.loop = true;
-    this.backgroundAudio.preload = 'auto';
-    this.phraseAudio.preload = 'auto';
-    this.backgroundAudio.crossOrigin = 'anonymous';
-    this.phraseAudio.crossOrigin = 'anonymous';
-    this.backgroundAudio.preservesPitch = false;
-    this.phraseAudio.preservesPitch = false;
+    this.currentPhrase = null;
+    this.nextCueAt = null;
+    this.cueCount = 0;
+    this.playback = new AudioPlaybackLayer({ onLog });
   }
 
-  applySettings(settings) {
-    this.settings = structuredClone(settings);
-    const music = getMusicById(this.settings.selectedMusicId);
-    this.backgroundAudio.src = music.src;
-    this.backgroundAudio.volume = this.settings.musicVolume;
-    this.phraseAudio.volume = this.settings.phraseVolume;
-    if (this.state === 'idle') {
-      this.sleepTimerRemainingMs = this.settings.sleepTimerMinutes > 0 ? this.settings.sleepTimerMinutes * 60000 : null;
-      this.sleepTimerDeadline = null;
+  #elapsedMs(now = Date.now()) {
+    if (this.state === 'running' && this.runningSegmentStartedAt) {
+      return this.accumulatedElapsedMs + (now - this.runningSegmentStartedAt);
     }
+    return this.accumulatedElapsedMs;
   }
 
-  getSnapshot() {
+  async applySettings(nextSettings) {
+    const previous = this.settings;
+    this.settings = normalizeSettings(nextSettings);
+    await this.playback.applySettings(previous, this.settings, this.state, Boolean(this.currentPhrase));
+    if (this.state === 'idle') {
+      this.sleepTimerRemainingMs = this.settings.sleepTimerMinutes > 0
+        ? this.settings.sleepTimerMinutes * 60000
+        : null;
+      this.sleepTimerDeadline = null;
+    } else if (this.state === 'running' && previous?.sleepTimerMinutes !== this.settings.sleepTimerMinutes) {
+      const duration = this.settings.sleepTimerMinutes * 60000;
+      if (duration > 0) this.#armSleepTimer(duration);
+      else {
+        this.#clearSleepTimer();
+        this.sleepTimerDeadline = null;
+        this.sleepTimerRemainingMs = null;
+      }
+      this.#log(this.settings.sleepTimerMinutes > 0
+        ? `Sleep timer reset to ${this.settings.sleepTimerMinutes} minutes.`
+        : 'Sleep timer turned off.');
+    }
+    this.#emitState();
+  }
+
+  getSnapshot(now = Date.now()) {
+    const elapsedMs = this.#elapsedMs(now);
+    const countdownSeconds = this.nextCueAt
+      ? Math.max(0, Math.ceil((this.nextCueAt - now) / 1000))
+      : null;
     const sleepTimerLabel = this.sleepTimerDeadline
-      ? `${Math.max(1, Math.ceil(Math.max(0, this.sleepTimerDeadline - Date.now()) / 60000))}m left`
+      ? `${Math.max(1, Math.ceil(Math.max(0, this.sleepTimerDeadline - now) / 60000))}m left`
       : this.settings?.sleepTimerMinutes > 0
         ? `${this.settings.sleepTimerMinutes}m`
         : 'Off';
-
     return {
       state: this.state,
-      elapsedLabel: nowLabel(this.elapsedMs),
-      currentPhraseLabel: this.currentPlan?.phrase?.label || 'Nothing yet',
-      nextDelayLabel: this.currentPlan ? `${this.currentPlan.delaySeconds}s` : 'Waiting',
-      repeatLabel: this.currentPlan ? `${this.currentPlan.repeatCount}x` : 'Waiting',
-      playbackRateLabel: this.currentPlan ? `${this.currentPlan.playbackRate.toFixed(2)}x` : 'Waiting',
+      elapsedMs,
+      elapsedLabel: nowLabel(elapsedMs),
+      modeLabel: getModeById(this.settings?.modeId).label,
+      phaseLabel: this.currentPlan?.phaseLabel || 'Waiting to begin',
+      currentPhraseLabel: this.currentPhrase?.label || 'Silent',
+      nextPhraseLabel: this.currentPlan?.phrase?.label || 'Waiting',
+      nextCueCountdown: countdownSeconds,
+      nextCueLabel: countdownSeconds === null ? 'Waiting' : `${countdownSeconds}s`,
+      repeatLabel: this.currentPlan ? `${this.currentPlan.repeatCount}x` : '—',
+      playbackRateLabel: this.currentPlan ? `${this.currentPlan.playbackRate.toFixed(2)}x` : '—',
       musicLabel: getMusicById(this.settings?.selectedMusicId).label,
       sleepTimerLabel,
+      cueCount: this.cueCount,
+      canStart: Boolean(this.settings?.enabledPhraseIds?.length),
     };
   }
 
@@ -79,6 +105,7 @@ export class AudioSessionEngine {
       clearTimeout(this.pendingTimeout);
       this.pendingTimeout = null;
     }
+    this.nextCueAt = null;
   }
 
   #clearSleepTimer() {
@@ -90,13 +117,11 @@ export class AudioSessionEngine {
 
   #armSleepTimer(durationMs) {
     this.#clearSleepTimer();
-
     if (durationMs <= 0) {
       this.sleepTimerDeadline = null;
       this.sleepTimerRemainingMs = null;
       return;
     }
-
     this.sleepTimerRemainingMs = durationMs;
     this.sleepTimerDeadline = Date.now() + durationMs;
     this.sleepTimerTimeout = setTimeout(() => {
@@ -104,132 +129,83 @@ export class AudioSessionEngine {
       this.sleepTimerDeadline = null;
       this.sleepTimerRemainingMs = null;
       this.#log('Sleep timer reached. Session stopped.');
-      this.stop();
+      this.stop('timer');
     }, durationMs);
   }
 
-  #releaseAbortWaiters() {
-    for (const resolve of this.abortResolvers) {
-      resolve();
-    }
-    this.abortResolvers.clear();
-  }
-
-  #waitForAbortableDelay(ms) {
-    return new Promise((resolve) => {
-      const abort = () => {
-        this.abortResolvers.delete(abort);
-        clearTimeout(timer);
-        resolve(false);
-      };
-      const timer = setTimeout(() => {
-        this.abortResolvers.delete(abort);
-        resolve(true);
-      }, ms);
-      this.abortResolvers.add(abort);
-    });
-  }
-
-  async #playAudio(audio, src, rate, volume) {
-    audio.pause();
-    audio.currentTime = 0;
-    audio.src = src;
-    audio.volume = volume;
-    audio.playbackRate = rate;
-    audio.preservesPitch = false;
-    audio.webkitPreservesPitch = false;
-    audio.mozPreservesPitch = false;
-
-    let abortResolver;
-    const ended = new Promise((resolve) => {
-      const handler = () => {
-        audio.removeEventListener('ended', handler);
-        resolve(true);
-      };
-      audio.addEventListener('ended', handler);
-    });
-
-    const aborted = new Promise((resolve) => {
-      abortResolver = () => resolve(false);
-      this.abortResolvers.add(abortResolver);
-    });
-
-    const played = await audio.play().then(() => true).catch(() => false);
-    if (!played) {
-      this.abortResolvers.delete(abortResolver);
-      return false;
-    }
-
-    try {
-      const outcome = await Promise.race([ended, aborted]);
-      return outcome === true;
-    } finally {
-      this.abortResolvers.delete(abortResolver);
-    }
-  }
-
   async #playPhraseGroup(plan) {
-    this.currentPlan = plan;
-    this.onPlan?.(plan);
+    this.currentPhrase = plan.phrase;
+    this.nextCueAt = null;
     this.#emitState();
-    this.#log(`Playing "${plan.phrase.label}" at ${plan.playbackRate.toFixed(2)}x for ${plan.repeatCount} repeat(s).`);
-
-    for (let index = 0; index < plan.repeatCount; index += 1) {
-      if (this.state !== 'running') return;
-      const completed = await this.#playAudio(this.phraseAudio, plan.phrase.src, plan.playbackRate, this.settings.phraseVolume);
-      if (!completed || this.state !== 'running') return;
-      if (index < plan.repeatCount - 1) {
-        const gapCompleted = await this.#waitForAbortableDelay(plan.cueGapMs);
-        if (!gapCompleted || this.state !== 'running') return;
-      }
+    this.#log(`Playing “${plan.phrase.label}” at ${plan.playbackRate.toFixed(2)}x for ${plan.repeatCount} repeat(s).`);
+    try {
+      await this.playback.playPhraseGroup(
+        plan,
+        this.settings,
+        () => this.state === 'running',
+        () => { this.cueCount += 1; },
+      );
+    } finally {
+      this.currentPhrase = null;
+      this.#emitState();
     }
   }
 
   async #runLoop() {
-    while (this.state === 'running') {
-      const plan = this.scheduler.buildPlan(this.settings);
-      this.currentPlan = plan;
-      this.onPlan?.(plan);
-      this.#emitState();
-      this.#log(`Next cue in ${plan.delaySeconds}s: ${plan.phrase.label}`);
-      this.pendingTimeout = setTimeout(async () => {
-        this.pendingTimeout = null;
-        if (this.state !== 'running') return;
-        await this.#playPhraseGroup(plan);
-        if (this.state === 'running') {
-          this.#runLoop();
-        }
-      }, plan.delaySeconds * 1000);
+    if (this.state !== 'running') return;
+    const plan = this.scheduler.buildPlan(this.settings, this.#elapsedMs() / 1000);
+    if (!plan) {
+      this.#log('Select at least one phrase before starting.');
+      await this.stop('invalid');
       return;
     }
+    this.currentPlan = plan;
+    this.nextCueAt = Date.now() + plan.delaySeconds * 1000;
+    this.onPlan?.(plan);
+    this.#emitState();
+    this.#log(`Next surprise in ${plan.delaySeconds}s: ${plan.phrase.label}`);
+    this.pendingTimeout = setTimeout(async () => {
+      this.pendingTimeout = null;
+      if (this.state !== 'running') return;
+      await this.#playPhraseGroup(plan);
+      if (this.state === 'running') await this.#runLoop();
+    }, plan.delaySeconds * 1000);
   }
 
   async start() {
-    if (!this.settings) {
-      throw new Error('Settings must be applied before starting.');
+    if (!this.settings) throw new Error('Settings must be applied before starting.');
+    if (this.settings.enabledPhraseIds.length === 0) {
+      this.#log('Select at least one phrase before starting.');
+      this.#emitState();
+      return false;
     }
-
-    if (this.state === 'running') return;
+    if (this.state === 'running') return true;
+    const wasPaused = this.state === 'paused';
     if (this.state === 'idle') {
-      this.startAt = Date.now();
-      this.elapsedMs = 0;
-      this.sleepTimerRemainingMs = this.settings.sleepTimerMinutes > 0 ? this.settings.sleepTimerMinutes * 60000 : null;
+      this.accumulatedElapsedMs = 0;
+      this.cueCount = 0;
+      this.currentPlan = null;
+      this.scheduler.reset?.();
+      this.sleepTimerRemainingMs = this.settings.sleepTimerMinutes > 0
+        ? this.settings.sleepTimerMinutes * 60000
+        : null;
     }
-
     this.state = 'running';
-    this.backgroundAudio.src = getMusicById(this.settings.selectedMusicId).src;
-    this.backgroundAudio.volume = this.settings.musicVolume;
+    this.runningSegmentStartedAt = Date.now();
+    await this.playback.startBackground(this.settings);
     if (this.sleepTimerRemainingMs && this.sleepTimerRemainingMs > 0) {
       this.#armSleepTimer(this.sleepTimerRemainingMs);
     }
-    await this.backgroundAudio.play().catch(() => undefined);
-    this.#log('Session started.');
+    this.#log(wasPaused ? 'Session resumed.' : 'Edge session started.');
     this.#emitState();
     await this.#runLoop();
+    return true;
   }
 
   async pause() {
     if (this.state !== 'running') return;
+    this.accumulatedElapsedMs = this.#elapsedMs();
+    this.runningSegmentStartedAt = null;
     this.state = 'paused';
     this.#clearPending();
     if (this.sleepTimerDeadline) {
@@ -237,40 +213,51 @@ export class AudioSessionEngine {
       this.sleepTimerDeadline = null;
       this.#clearSleepTimer();
     }
-    this.backgroundAudio.pause();
-    this.phraseAudio.pause();
-    this.#releaseAbortWaiters();
+    this.playback.pause();
+    this.currentPhrase = null;
     this.#log('Session paused.');
     this.#emitState();
   }
 
-  async stop() {
+  async stop(reason = 'manual') {
     if (this.state === 'idle') return;
+    if (this.state === 'running') this.accumulatedElapsedMs = this.#elapsedMs();
+    const summary = {
+      modeId: this.settings?.modeId,
+      elapsedMs: this.accumulatedElapsedMs,
+      cueCount: this.cueCount,
+      stoppedBy: reason,
+      endedAt: new Date().toISOString(),
+    };
     this.state = 'idle';
+    this.runningSegmentStartedAt = null;
     this.#clearPending();
     this.#clearSleepTimer();
-    this.backgroundAudio.pause();
-    this.backgroundAudio.currentTime = 0;
-    this.phraseAudio.pause();
-    this.phraseAudio.currentTime = 0;
-    this.#releaseAbortWaiters();
+    this.playback.stop();
     this.currentPlan = null;
-    this.elapsedMs = 0;
-    this.startAt = null;
+    this.currentPhrase = null;
     this.sleepTimerDeadline = null;
-    this.sleepTimerRemainingMs = this.settings?.sleepTimerMinutes > 0 ? this.settings.sleepTimerMinutes * 60000 : null;
+    this.sleepTimerRemainingMs = this.settings?.sleepTimerMinutes > 0
+      ? this.settings.sleepTimerMinutes * 60000
+      : null;
+    this.accumulatedElapsedMs = 0;
     this.#log('Session stopped.');
     this.#emitState();
+    if (summary.elapsedMs > 0 && reason !== 'dispose') this.onSessionEnd?.(summary);
   }
 
-  updateElapsed(now = Date.now()) {
-    if (this.state === 'running' && this.startAt) {
-      this.elapsedMs = now - this.startAt;
-      this.#emitState();
-    }
+  async previewPhrase(phrase) {
+    if (!phrase || this.state !== 'idle') return false;
+    this.#log(`Previewing “${phrase.label}”.`);
+    return this.playback.previewPhrase(phrase, this.settings);
+  }
+
+  updateElapsed() {
+    if (this.state === 'running') this.#emitState();
   }
 
   dispose() {
-    this.stop();
+    this.stop('dispose');
+    this.playback.dispose();
   }
 }
