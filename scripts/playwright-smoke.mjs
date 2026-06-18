@@ -1,20 +1,27 @@
 import { existsSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 
 function findChromiumExecutable() {
-  const base = join(process.env.LOCALAPPDATA || '', 'ms-playwright');
-  const candidates = readdirSync(base, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith('chromium-'))
-    .map((entry) => join(base, entry.name, 'chrome-win64', 'chrome.exe'))
-    .filter((candidate) => existsSync(candidate))
-    .sort();
-
-  if (candidates.length === 0) {
-    throw new Error('Could not find a downloaded Chromium executable under ms-playwright.');
+  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE && existsSync(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE)) {
+    return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
   }
-
-  return candidates[candidates.length - 1];
+  const roots = [process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright'), join(homedir(), '.cache', 'ms-playwright')].filter(Boolean);
+  const suffixes = [join('chrome-win64', 'chrome.exe'), join('chrome-linux', 'chrome'), join('chrome-headless-shell-linux64', 'chrome-headless-shell')];
+  const matches = [];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.startsWith('chromium')) continue;
+      for (const suffix of suffixes) {
+        const candidate = join(root, entry.name, suffix);
+        if (existsSync(candidate)) matches.push(candidate);
+      }
+    }
+  }
+  if (!matches.length) throw new Error('Could not find a Playwright Chromium executable.');
+  return matches.sort().at(-1);
 }
 
 async function setValue(page, selector, value) {
@@ -25,105 +32,56 @@ async function setValue(page, selector, value) {
   }, value);
 }
 
-const executablePath = findChromiumExecutable();
-const browser = await chromium.launch({
-  executablePath,
-  headless: true,
-  args: ['--autoplay-policy=no-user-gesture-required'],
-});
-
+const browser = await chromium.launch({ executablePath: findChromiumExecutable(), headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
   const mediaRequests = [];
-
+  const pageErrors = [];
   page.on('request', (request) => {
-    if (request.resourceType() === 'media' || /\.wav(\?|$)/i.test(request.url())) {
-      mediaRequests.push(request.url());
+    if (request.resourceType() === 'media' || /\.wav(\?|$)/i.test(request.url())) mediaRequests.push(request.url());
+  });
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await page.goto(process.env.DREAMSPEAK_BASE_URL || 'http://localhost:3000', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#start-button');
+  if (await page.locator('#mode-select').inputValue() !== 'edge') throw new Error('Edge mode should be the default.');
+
+  await page.locator('#phrase-list input[type="checkbox"]').evaluateAll((checkboxes) => {
+    for (const checkbox of checkboxes) {
+      checkbox.checked = false;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
+  await page.waitForFunction(() => document.querySelector('#start-button')?.disabled === true);
+  await page.locator('#apply-goal-button').click();
+  await page.waitForFunction(() => document.querySelector('#start-button')?.disabled === false);
 
-  await page.goto('http://localhost:3000', { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('#start-button');
-
-  await page.locator('#music-select').selectOption('ocean');
-  await setValue(page, '#phrase-volume', 0.6);
-  await setValue(page, '#music-volume', 0.2);
+  await page.locator('#mode-select').selectOption('custom');
   await setValue(page, '#min-delay', 3);
   await setValue(page, '#max-delay', 3);
   await setValue(page, '#min-repeats', 1);
   await setValue(page, '#max-repeats', 1);
-  await setValue(page, '#min-rate', 1);
-  await setValue(page, '#max-rate', 1);
-  await setValue(page, '#sleep-timer', 0);
-
+  await page.locator('#variation-select').selectOption('natural');
+  await page.locator('#sleep-timer').selectOption('0');
   await page.locator('#start-button').click();
-  await page.waitForFunction(() =>
-    document.querySelector('#session-log')?.textContent?.includes('Session started')
-  );
-
-  const runningState = await page.locator('#session-state').textContent();
-  const logBeforePlayback = await page.locator('#session-log').innerText();
-
-  await page.waitForTimeout(4200);
-
-  const currentPhraseAfter = await page.locator('#current-phrase').textContent();
-  const nextDelayAfter = await page.locator('#next-delay').textContent();
-  const repeatAfter = await page.locator('#repeat-count').textContent();
-  const rateAfter = await page.locator('#playback-rate').textContent();
-  const sleepTimerLabel = await page.locator('#sleep-timer-label').textContent();
-  const logAfter = await page.locator('#session-log').innerText();
+  await page.waitForFunction(() => document.querySelector('#session-state')?.textContent === 'Running');
+  await page.waitForTimeout(4300);
 
   await page.locator('#pause-button').click();
-  await page.waitForTimeout(150);
-  const pausedState = await page.locator('#session-state').textContent();
+  await page.waitForFunction(() => document.querySelector('#session-state')?.textContent === 'Paused');
+  const before = await page.locator('#elapsed-time').textContent();
+  await page.waitForTimeout(1100);
+  const after = await page.locator('#elapsed-time').textContent();
+  if (before !== after) throw new Error(`Elapsed time changed while paused: ${before} -> ${after}`);
 
   await page.locator('#start-button').click();
-  await page.waitForTimeout(150);
   await page.locator('#stop-button').click();
-  await page.waitForTimeout(150);
-  const stoppedState = await page.locator('#session-state').textContent();
-
-  const phraseRequests = mediaRequests.filter((url) => /phrases\/phrase-\d\d\.wav/i.test(url));
-  const musicRequests = mediaRequests.filter((url) => /music\/(rain|ocean|drift)\.wav/i.test(url));
-
-  const result = {
-    runningState,
-    pausedState,
-    stoppedState,
-    currentPhraseAfter,
-    nextDelayAfter,
-    repeatAfter,
-    rateAfter,
-    sleepTimerLabel,
-    phraseRequests: phraseRequests.length,
-    musicRequests: musicRequests.length,
-    logBeforePlayback,
-    logAfter,
-  };
-
-  console.log(JSON.stringify(result, null, 2));
-
-  if (runningState !== 'Running') throw new Error(`Expected Running state, saw ${runningState}`);
-  if (pausedState !== 'Paused') throw new Error(`Expected Paused state, saw ${pausedState}`);
-  if (stoppedState !== 'Idle') throw new Error(`Expected Idle state, saw ${stoppedState}`);
-  if (!currentPhraseAfter || currentPhraseAfter === 'Nothing yet') {
-    throw new Error('Expected a played phrase to appear after the delay window.');
-  }
-  if (phraseRequests.length === 0) {
-    throw new Error('Expected at least one phrase audio request.');
-  }
-  if (musicRequests.length === 0) {
-    throw new Error('Expected at least one music audio request.');
-  }
-  if (!sleepTimerLabel || sleepTimerLabel !== 'Off') {
-    throw new Error(`Expected the sleep timer label to be Off, saw ${sleepTimerLabel}`);
-  }
-  if (!logBeforePlayback?.includes('Session started')) {
-    throw new Error('Expected the log to show the session started.');
-  }
-  if (!logAfter?.includes('Playing')) {
-    throw new Error('Expected the log to show a phrase group playback event.');
-  }
+  await page.waitForFunction(() => document.querySelector('#feedback-panel')?.hidden === false);
+  await page.locator('#save-feedback-button').click();
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('dreamspeak.session-history.v1') || '[]').length);
+  if (!saved) throw new Error('Expected feedback history to persist.');
+  if (!mediaRequests.some((url) => /audio\/phrases\//i.test(url))) throw new Error('Expected a phrase audio request.');
+  if (pageErrors.length) throw new Error(pageErrors.join('; '));
+  console.log(JSON.stringify({ edgeDefault: true, emptySelectionBlocked: true, pausedElapsedStable: true, feedbackSaved: true }, null, 2));
 } finally {
   await browser.close();
 }
