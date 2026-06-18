@@ -1,14 +1,1 @@
-{
-  "name": "dreamspeak",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "start": "node server.js",
-    "generate:audio": "node scripts/generate-audio-fixtures.js",
-    "test:playwright": "node scripts/playwright-smoke.mjs"
-  },
-  "devDependencies": {
-    "playwright-core": "^1.60.0"
-  }
-}
+{"name":"dreamspeak","version":"1.1.0","private":true,"type":"module","scripts":{"start":"node server.js","generate:audio":"node scripts/generate-audio-fixtures.js","test:scheduler":"node scripts/scheduler-smoke.mjs","test:playwright":"node scripts/playwright-smoke.mjs"},"devDependencies":{"playwright-core":"^1.60.0"}}
