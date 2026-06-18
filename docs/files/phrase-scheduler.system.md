@@ -1,24 +1,13 @@
 # `public/modules/phrase-scheduler.js`
 
-Owns all bounded randomization for the MVP.
+Owns all bounded randomization for DreamSpeak.
 
-It decides:
-- which phrase to play next
-- how many repeats to use
-- how long to wait between groups
-- what playback rate to use
+It chooses the active phase from mode plus elapsed time, the next enabled phrase with recent-phrase avoidance, delay, repeat count, cue gap, and playback rate.
 
-Does not own:
-- UI state
-- audio element control
-- persistence
+Safety rules:
+- empty phrase pools return `null`
+- all output remains within preset/custom bounds
+- single-phrase pools work
+- an injected random source supports deterministic tests
 
-Inputs:
-- registry data
-- current session settings
-
-Outputs:
-- a plan object for the next phrase group
-
-Dependencies:
-- `public/modules/audio-registry.js`
+It does not own UI state, audio transport, or persistence.
