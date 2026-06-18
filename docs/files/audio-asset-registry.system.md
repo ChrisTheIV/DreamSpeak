@@ -1,18 +1,14 @@
 # `public/modules/audio-registry.js`
 
-Owns the canonical list of phrase clips, background music tracks, and default session settings.
+Owns phrase clips, categories, goal sets, ambient tracks, session modes, phase bounds, variation profiles, defaults, and settings normalization.
 
-Does not own:
-- playback timing
-- UI rendering
-- audio transport state
-
-Inputs:
-- none at runtime beyond module import
+It does not own random selection, timing execution, audio transport, or UI rendering.
 
 Outputs:
-- registry objects
-- helper lookups for phrase and music IDs
+- registry collections
+- safe lookup helpers
+- default settings
+- mode-preset application
+- normalized, clamped settings
 
-Dependencies:
-- local audio fixture paths under `public/audio/`
+Dependency: local audio files under `public/audio/`.
