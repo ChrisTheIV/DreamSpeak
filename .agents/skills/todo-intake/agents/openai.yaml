@@ -1,0 +1,4 @@
+interface:
+  display_name: "TODO Intake"
+  short_description: "Turn rough ideas into executor-ready TODO specs"
+  default_prompt: "Use $todo-intake to rewrite rough notes into a concrete to-do spec with task IDs, acceptance criteria, and validation."

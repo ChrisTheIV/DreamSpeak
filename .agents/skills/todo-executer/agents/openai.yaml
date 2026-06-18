@@ -1,0 +1,4 @@
+interface:
+  display_name: "TO-DO Executer"
+  short_description: "Implement TODO specs end-to-end with validation"
+  default_prompt: "Use $todo-executer to complete a to-do spec top-to-bottom and validate the changes."

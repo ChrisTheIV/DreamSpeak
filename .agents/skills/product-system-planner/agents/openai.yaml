@@ -1,0 +1,4 @@
+interface:
+  display_name: "Product System Planner"
+  short_description: "Plan product behavior before implementation"
+  default_prompt: "Use $product-system-planner to decide product behavior, object model, and final rules before writing TODOs or code."

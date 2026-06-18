@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DreamSpeak</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb bg-orb-a"></div>
+    <div class="bg-orb bg-orb-b"></div>
+
+    <div class="app-shell">
+      <header class="hero card">
+        <div class="eyebrow">Lucid intention audio MVP</div>
+        <h1>Stay aware without turning the cue into noise.</h1>
+        <p>
+          Random phrase groups, quiet ambient loops, and bounded playback variation for
+          sleep-onset sessions.
+        </p>
+        <div class="hero-stats">
+          <div>
+            <span class="stat-label">Session</span>
+            <strong id="session-state" data-testid="status-badge">Idle</strong>
+          </div>
+          <div>
+            <span class="stat-label">Elapsed</span>
+            <strong id="elapsed-time">00:00</strong>
+          </div>
+          <div>
+            <span class="stat-label">Current phrase</span>
+            <strong id="current-phrase">Nothing yet</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="card controls-panel" aria-labelledby="controls-title">
+          <div class="section-head">
+            <h2 id="controls-title">Controls</h2>
+            <p>Start, pause, or stop the current intention session.</p>
+          </div>
+
+          <div class="button-row">
+            <button id="start-button" data-testid="start-button" class="primary">Start</button>
+            <button id="pause-button" data-testid="pause-button" class="secondary">Pause</button>
+            <button id="stop-button" data-testid="stop-button" class="secondary danger">Stop</button>
+          </div>
+
+          <div class="stack">
+            <label>
+              <span>Background music</span>
+              <select id="music-select" data-testid="music-select"></select>
+            </label>
+
+            <div class="range-grid">
+              <label>
+                <span>Phrase volume</span>
+                <input id="phrase-volume" data-testid="phrase-volume" type="range" min="0" max="1" step="0.05" />
+              </label>
+              <label>
+                <span>Music volume</span>
+                <input id="music-volume" data-testid="music-volume" type="range" min="0" max="1" step="0.05" />
+              </label>
+              <label>
+                <span>Min delay (sec)</span>
+                <input id="min-delay" data-testid="min-delay" type="number" min="3" max="180" step="1" />
+              </label>
+              <label>
+                <span>Max delay (sec)</span>
+                <input id="max-delay" data-testid="max-delay" type="number" min="3" max="300" step="1" />
+              </label>
+              <label>
+                <span>Min repeats</span>
+                <input id="min-repeats" data-testid="min-repeats" type="number" min="1" max="8" step="1" />
+              </label>
+              <label>
+                <span>Max repeats</span>
+                <input id="max-repeats" data-testid="max-repeats" type="number" min="1" max="12" step="1" />
+              </label>
+              <label>
+                <span>Min speed</span>
+                <input id="min-rate" data-testid="min-rate" type="number" min="0.75" max="1.5" step="0.01" />
+              </label>
+              <label>
+                <span>Max speed</span>
+                <input id="max-rate" data-testid="max-rate" type="number" min="0.75" max="1.5" step="0.01" />
+              </label>
+              <label>
+                <span>Sleep timer (min, 0 = off)</span>
+                <input id="sleep-timer" data-testid="sleep-timer" type="number" min="0" max="240" step="1" />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="card session-panel" aria-labelledby="session-title">
+          <div class="section-head">
+            <h2 id="session-title">Session feed</h2>
+            <p>Shows the next plan, the active cue, and the latest session event.</p>
+          </div>
+
+          <div class="feed-grid">
+            <article class="feed-card">
+              <span class="feed-label">Next delay</span>
+              <strong id="next-delay">Waiting</strong>
+            </article>
+            <article class="feed-card">
+              <span class="feed-label">Repeat count</span>
+              <strong id="repeat-count">Waiting</strong>
+            </article>
+            <article class="feed-card">
+              <span class="feed-label">Playback rate</span>
+              <strong id="playback-rate">Waiting</strong>
+            </article>
+            <article class="feed-card">
+              <span class="feed-label">Music</span>
+              <strong id="selected-music">Rain</strong>
+            </article>
+            <article class="feed-card">
+              <span class="feed-label">Sleep timer</span>
+              <strong id="sleep-timer-label">Off</strong>
+            </article>
+          </div>
+
+          <div class="log-wrap">
+            <div class="section-head compact">
+              <h3>Event log</h3>
+              <p>Most recent events appear first.</p>
+            </div>
+            <ul id="session-log" data-testid="session-log" class="log-list"></ul>
+          </div>
+        </section>
+      </main>
+
+      <section class="card phrase-panel" aria-labelledby="phrases-title">
+        <div class="section-head">
+          <h2 id="phrases-title">Phrase library</h2>
+          <p>Twenty pre-recorded clips are available and can be toggled on or off.</p>
+        </div>
+        <div id="phrase-list" data-testid="phrase-list" class="phrase-grid"></div>
+      </section>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
