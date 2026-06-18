@@ -1,28 +1,12 @@
 # `public/modules/audio-session-engine.js`
 
-Owns the session lifecycle and audio transport.
+Owns session lifecycle and user-visible session state.
 
-It starts, pauses, resumes, and stops:
-- background music playback
-- phrase clip playback
-- scheduled cue timing
-- optional sleep timer expiry
+It manages start, pause, resume, stop, active elapsed time excluding pauses, plan countdown state, sleep timer changes, snapshots, logs, summaries, and coordination between the scheduler and playback layer.
 
-Does not own:
-- phrase selection logic
-- DOM rendering
-- localStorage persistence
-
-Inputs:
-- registry
-- scheduler
-- current settings
-- pause/stop signals from the UI
-
-Outputs:
-- callbacks for state, plan, and log updates
+It does not own phrase/phase selection, low-level audio elements, DOM rendering, or local persistence.
 
 Dependencies:
-- browser `Audio` elements
 - `public/modules/audio-registry.js`
 - `public/modules/phrase-scheduler.js`
+- `public/modules/audio-playback-layer.js`
