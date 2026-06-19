@@ -1,6 +1,5 @@
 import { getMusicById, getVariationProfileById } from './audio-registry.js';
 
-const AMBIENT_DUCK_RATIO = 0.68;
 const BACKGROUND_FADE_MS = 320;
 
 function wait(ms) {
@@ -217,7 +216,7 @@ export class AudioPlaybackLayer {
 
   async applySettings(previous, next, state, isPhrasePlaying) {
     const music = getMusicById(next.selectedMusicId);
-    const targetVolume = next.musicVolume * (isPhrasePlaying ? AMBIENT_DUCK_RATIO : 1);
+    const targetVolume = next.musicVolume * (isPhrasePlaying ? next.ambienceDuringPhraseRatio : 1);
 
     if (previous?.selectedMusicId !== next.selectedMusicId && state === 'running') {
       await this.#switchBackgroundTrack(music, targetVolume, state);
@@ -338,7 +337,10 @@ export class AudioPlaybackLayer {
   }
 
   async playPhraseGroup(plan, settings, isRunning, onCue) {
-    await this.#setBackgroundVolume(settings.musicVolume * AMBIENT_DUCK_RATIO, 140);
+    await this.#setBackgroundVolume(
+      settings.musicVolume * settings.ambienceDuringPhraseRatio,
+      140,
+    );
     try {
       for (let index = 0; index < plan.repeatCount; index += 1) {
         if (!isRunning()) return false;
