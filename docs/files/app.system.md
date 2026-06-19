@@ -2,6 +2,8 @@
 
 Owns browser UI wiring, rendering, local settings/history persistence, phrase toggles and previews, control handlers, and optional post-session feedback.
 
+The volume controls include normal phrase volume, normal ambient volume, and `ambienceDuringPhraseRatio`. The phrase ambience ratio is displayed as a percentage of normal ambient volume and is applied live while a phrase is playing.
+
 Does not own:
 - random scheduling or phase selection
 - audio playback lifecycle
