@@ -44,6 +44,8 @@ const elements = {
   phraseVolumeValue: document.querySelector('#phrase-volume-value'),
   musicVolume: document.querySelector('#music-volume'),
   musicVolumeValue: document.querySelector('#music-volume-value'),
+  ambienceDuringPhrase: document.querySelector('#ambience-during-phrase'),
+  ambienceDuringPhraseValue: document.querySelector('#ambience-during-phrase-value'),
   minDelay: document.querySelector('#min-delay'),
   maxDelay: document.querySelector('#max-delay'),
   minRepeats: document.querySelector('#min-repeats'),
@@ -131,6 +133,7 @@ function renderSettings() {
   elements.sleepTimer.value = timerValue;
   elements.phraseVolume.value = String(settings.phraseVolume);
   elements.musicVolume.value = String(settings.musicVolume);
+  elements.ambienceDuringPhrase.value = String(settings.ambienceDuringPhraseRatio);
   elements.minDelay.value = String(settings.minDelaySeconds);
   elements.maxDelay.value = String(settings.maxDelaySeconds);
   elements.minRepeats.value = String(settings.minRepeats);
@@ -139,6 +142,7 @@ function renderSettings() {
   elements.maxRate.value = String(settings.maxPlaybackRate);
   elements.phraseVolumeValue.textContent = formatPercent(settings.phraseVolume);
   elements.musicVolumeValue.textContent = formatPercent(settings.musicVolume);
+  elements.ambienceDuringPhraseValue.textContent = formatPercent(settings.ambienceDuringPhraseRatio);
   renderDescriptions();
 }
 
@@ -374,11 +378,13 @@ elements.sleepTimer.addEventListener('change', () => {
 for (const [input, field] of [
   [elements.phraseVolume, 'phraseVolume'],
   [elements.musicVolume, 'musicVolume'],
+  [elements.ambienceDuringPhrase, 'ambienceDuringPhraseRatio'],
 ]) {
   input.addEventListener('input', () => {
     settings = normalizeSettings({ ...settings, [field]: input.value });
     elements.phraseVolumeValue.textContent = formatPercent(settings.phraseVolume);
     elements.musicVolumeValue.textContent = formatPercent(settings.musicVolume);
+    elements.ambienceDuringPhraseValue.textContent = formatPercent(settings.ambienceDuringPhraseRatio);
     persistSettings(settings);
     engine.applySettings(settings);
   });
@@ -430,6 +436,7 @@ elements.saveFeedback.addEventListener('click', () => {
     goalId: settings.goalId,
     phraseVolume: settings.phraseVolume,
     musicVolume: settings.musicVolume,
+    ambienceDuringPhraseRatio: settings.ambienceDuringPhraseRatio,
     savedAt: new Date().toISOString(),
   };
   persistHistory([entry, ...loadHistory()]);
