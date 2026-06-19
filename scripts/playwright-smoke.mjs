@@ -44,6 +44,12 @@ try {
   await page.goto(process.env.DREAMSPEAK_BASE_URL || 'http://localhost:3000', { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#start-button');
   if (await page.locator('#mode-select').inputValue() !== 'edge') throw new Error('Edge mode should be the default.');
+  if (await page.locator('#ambience-during-phrase').inputValue() !== '1') {
+    throw new Error('Ambience during phrase should default to 100%.');
+  }
+  await setValue(page, '#ambience-during-phrase', 0.5);
+  const savedRatio = await page.evaluate(() => JSON.parse(localStorage.getItem('dreamspeak.settings.v2') || '{}').ambienceDuringPhraseRatio);
+  if (savedRatio !== 0.5) throw new Error(`Expected ambience during phrase ratio to persist as 0.5, got ${savedRatio}.`);
 
   await page.locator('#phrase-list input[type="checkbox"]').evaluateAll((checkboxes) => {
     for (const checkbox of checkboxes) {
@@ -81,7 +87,7 @@ try {
   if (!saved) throw new Error('Expected feedback history to persist.');
   if (!mediaRequests.some((url) => /audio\/phrases\//i.test(url))) throw new Error('Expected a phrase audio request.');
   if (pageErrors.length) throw new Error(pageErrors.join('; '));
-  console.log(JSON.stringify({ edgeDefault: true, emptySelectionBlocked: true, pausedElapsedStable: true, feedbackSaved: true }, null, 2));
+  console.log(JSON.stringify({ edgeDefault: true, phraseAmbienceControl: true, emptySelectionBlocked: true, pausedElapsedStable: true, feedbackSaved: true }, null, 2));
 } finally {
   await browser.close();
 }
